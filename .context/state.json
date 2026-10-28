@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "checkedAt": "2026-10-28",
+  "files": {
+    ".context/index.md": "90a78781af1322d0c09b5287e9b8503399f56d6b759e529e082089c8cde71393",
+    ".context/integration.md": "cd2d0a0d02154fe0c67b9a50ac4215b70b0c640f2bcf977d7f35f0bf21cd48e8",
+    ".context/ui.md": "0a69bbb67dc19bb9395baf7a20df894cde86e5df88ae8d9febdc6a6f4548189e",
+    ".gitignore": "b8ab006e5cedd891b4fb574e6a4ff3e41c03bc32297ff3716f646600189de86e",
+    ".npmrc": "f7dbda001b627b3a792fb6929303b517f047f03916f2c55227e81216d38a2008",
+    ".openai/hosting.json": "d532abb65cf9ae20634b464d954cb4a08a0de9f3cd3cdf7f9c3ec8948826d947",
+    ".vercelignore": "a284799713b8a454005eb56d699312678196508d1bf4808b2e65645ae69df98e",
+    "AGENTS.md": "af41ad3b3225f465d90bedc2355d44c43c5aa22b7957d090970cbdf296a34d38",
+    "design-qa.md": "3d0aa39a2773c5c36ea84d095fe6886ae22e66aa53c88c8d15b1ff4ea04a89b6",
+    "index.html": "9447c55d36cec2867b3f786e92148b91ee03db85e965eedd0f587787dfc002a8",
+    "package-lock.json": "8594ae23187ab47d21d379a7510ed7a071e8b2aded6ac92a1f7ca8a8394ccac9",
+    "package.json": "34d51e6cff507c7006bb41b22e81bf3110ce17d762600e409bdaa6ada1082002",
+    "public/lotus.png": "a8162485603ebe990f0f81a766f99b7c2479d6ac330bc4979ab4a7a5c270cf9f",
+    "README.md": "fc1d19d0391db9984fbbff5d44abf59fc0ecb8cb00b8f132603bef81d37ec1e3",
+    "scripts/prepare-sites-build.mjs": "b6a6adaa4fab3234676116dd1c9cb6611275ab9d92dd26f5bf402393e3744bf6",
+    "src/App.jsx": "2e4775de2309df446d41e172c1a8748b60948897b235ab7e589a1fd7affc54bc",
+    "src/data.js": "df0887969d638e7b7729f5be4282f64c0c0adb3bb08d7ec2fbbc7f045d91381c",
+    "src/googleSheet.js": "d57e18deb011dd42ed9618fd1e223d5092ca930b712c648c27ccac8ff9c271b4",
+    "src/main.jsx": "832f752c6b6a454a26dbc4f2654f5bd633f2b103516c8c0abac648308c133a7e",
+    "src/styles.css": "44bad8f7d32a2d99d0751e46a535bfb28315b66734f3b1c68900499d280d0c06",
+    "start-crm.cmd": "7c78948ba9e9defc2aca5a7b80de7ddf6a7a7549200c049b89a079d98fcdaa75",
+    "tests/data.test.mjs": "011262156097505f3b4fcbffa57cd027762628868f67b1949838cb32548947ea",
+    "tests/googleSheet.test.mjs": "a2a512dc0442cc1163f2ce41a3242b8ad91c9ad31a933bc6efc9b006fd7da105",
+    "tests/sites-worker.test.mjs": "96af7b48906c6460c793356d7b6952f7d5026dbf5a502bec0d9297ff04201c26",
+    "vercel.json": "47522362458f30f022aa78afb884e032370fa49e023788be947ae7778b341196",
+    "vite.config.mjs": "5f20ad6ef5aa89956c8791d8caefa224bc80718ca38df213b5e0c9c883d4bfee",
+    "worker/index.js": "2dd0615a445143933d88d4271f54f5d63ee951421fcd08c5a7617bb09c564389"
+  }
+}

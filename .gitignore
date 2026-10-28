@@ -1,0 +1,9 @@
+.vercel/
+node_modules/
+dist/
+work/
+src/snapshot.json
+.env
+.env.*
+!.env.example
+*.log

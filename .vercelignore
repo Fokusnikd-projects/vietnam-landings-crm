@@ -1,0 +1,13 @@
+src/snapshot.json
+tests/
+work/
+dist/
+node_modules/
+.vercel/
+README.md
+design-qa.md
+start-crm.cmd
+AGENTS.md
+worker/
+scripts/
+.context/
