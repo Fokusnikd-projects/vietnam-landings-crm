@@ -1,4 +1,4 @@
-import { optionCounts, toggleValue } from "../data.js";
+import { hasSourceColumn, leadsWord, optionCounts, toggleValue } from "../data.js";
 import { Icon } from "./icons.jsx";
 
 const CHIP_GROUPS = [
@@ -27,7 +27,7 @@ function ChipGroup({ title, field, viewKey, leads, view, onChange }) {
                 aria-pressed={selected}
                 onClick={() => onChange({ ...view, [viewKey]: toggleValue(view[viewKey], item.value) })}
               >
-                {item.value} <small>{item.count}</small>
+                {item.label} <small>{item.count}</small>
               </button>
             );
           })}
@@ -37,7 +37,7 @@ function ChipGroup({ title, field, viewKey, leads, view, onChange }) {
   );
 }
 
-export function FilterSheet({ leads, view, onChange, onClose }) {
+export function FilterSheet({ leads, view, resultCount, onChange, onClose }) {
   const districts = optionCounts(leads, "Район");
   const reset = () => onChange({
     ...view,
@@ -48,6 +48,7 @@ export function FilterSheet({ leads, view, onChange, onClose }) {
     batches: [],
     channels: [],
     readiness: [],
+    sources: [],
   });
   return (
     <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
@@ -57,6 +58,7 @@ export function FilterSheet({ leads, view, onChange, onClose }) {
           <h2 id="filter-title">Фильтры</h2>
           <button type="button" className="icon-button" aria-label="Закрыть фильтры" onClick={onClose}><Icon name="close" /></button>
         </div>
+        <div className="sheet-body">
         <section>
           <h3>Район</h3>
           {districts.length ? districts.map(item => (
@@ -66,7 +68,7 @@ export function FilterSheet({ leads, view, onChange, onClose }) {
                 checked={view.districts.includes(item.value)}
                 onChange={() => onChange({ ...view, districts: toggleValue(view.districts, item.value) })}
               />
-              <span>{item.value}</span>
+              <span>{item.label}</span>
               <small>{item.count}</small>
             </label>
           )) : <p className="muted">Нет районов</p>}
@@ -74,9 +76,13 @@ export function FilterSheet({ leads, view, onChange, onClose }) {
         {CHIP_GROUPS.map(([viewKey, title, field]) => (
           <ChipGroup key={viewKey} title={title} field={field} viewKey={viewKey} leads={leads} view={view} onChange={onChange} />
         ))}
-        <div className="sheet-actions">
+        {hasSourceColumn(leads) && (
+          <ChipGroup title="Источник" field="Источник" viewKey="sources" leads={leads} view={view} onChange={onChange} />
+        )}
+        </div>
+        <div className="sheet-footer">
           <button type="button" className="secondary-btn" onClick={reset}>Сбросить</button>
-          <button type="button" className="primary-btn" onClick={onClose}>Готово</button>
+          <button type="button" className="brand-btn" onClick={onClose}>Показать {resultCount} {leadsWord(resultCount)}</button>
         </div>
       </section>
     </div>

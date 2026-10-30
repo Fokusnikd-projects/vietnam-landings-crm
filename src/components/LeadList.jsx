@@ -2,12 +2,16 @@ import { fitClass, hasTourists, ratingLine, stageKey } from "../data.js";
 import { QuickActions } from "./ContactBar.jsx";
 
 function LeadRow({ lead, selected, noted, onOpen, onZalo }) {
-  const meta = [lead["Район"], lead["Ниша"], ratingLine(lead)].filter(Boolean).join(" · ");
+  const place = [lead["Район"], lead["Ниша"]].filter(Boolean).join(" · ");
+  const rating = ratingLine(lead);
   return (
     <article className={selected ? "lead-row selected" : "lead-row"}>
       <button type="button" className="lead-open" onClick={() => onOpen(lead.id)}>
         <span className="lead-name">{lead["Название"] || "Без названия"}</span>
-        <span className="lead-meta">{meta || "Район и ниша не указаны"}</span>
+        <span className="lead-meta">
+          <span className="lead-place">{place || "Район не указан"}</span>
+          {rating && <span className="lead-rating">{rating}</span>}
+        </span>
         <span className="lead-tags">
           <span className={fitClass(lead.Fit)}>{lead.Fit || "—"}</span>
           {hasTourists(lead) && <span className="tourist-mark">туристы</span>}

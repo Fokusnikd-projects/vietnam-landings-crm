@@ -19,8 +19,9 @@ export function ContactBar({ lead, onZalo, onWhatsApp }) {
             <button
               key={item.key}
               type="button"
-              className="contact-btn"
+              className={disabled ? "contact-btn is-disabled" : "contact-btn"}
               disabled={disabled}
+              aria-disabled={disabled}
               onClick={() => (item.action === "zalo" ? onZalo(lead) : onWhatsApp(lead))}
             >
               <Icon name={item.icon} />
@@ -29,7 +30,7 @@ export function ContactBar({ lead, onZalo, onWhatsApp }) {
           );
         }
         if (disabled) {
-          return <button key={item.key} type="button" className="contact-btn" disabled><Icon name={item.icon} />{item.label}</button>;
+          return <button key={item.key} type="button" className="contact-btn is-disabled" disabled aria-disabled="true"><Icon name={item.icon} />{item.label}</button>;
         }
         return (
           <a
@@ -48,15 +49,24 @@ export function ContactBar({ lead, onZalo, onWhatsApp }) {
   );
 }
 
+function Action({ href, label, className, children, onClick = undefined }) {
+  if (!href) {
+    return <button type="button" className={`${className} is-disabled`} disabled aria-disabled="true" aria-label={label}>{children}</button>;
+  }
+  if (onClick) {
+    return <button type="button" className={className} aria-label={label} onClick={onClick}>{children}</button>;
+  }
+  const external = !String(href).startsWith("tel:");
+  return <a className={className} href={href} aria-label={label} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>{children}</a>;
+}
+
 export function QuickActions({ lead, onZalo }) {
-  const call = lead.contacts?.telHref;
-  const zalo = lead.contacts?.zaloHref;
-  const maps = lead.contacts?.mapsHref;
+  const name = lead["Название"] || "лид";
   return (
     <div className="quick-actions">
-      {call ? <a className="quick-btn" href={call} aria-label={`Позвонить: ${lead["Название"]}`}><Icon name="phone" /></a> : <button type="button" className="quick-btn" disabled aria-label={`Позвонить: ${lead["Название"]}`}><Icon name="phone" /></button>}
-      <button type="button" className="quick-btn" disabled={!zalo} aria-label={`Zalo: ${lead["Название"]}`} onClick={() => onZalo(lead)}><Icon name="zalo" /></button>
-      {maps ? <a className="quick-btn" href={maps} target="_blank" rel="noreferrer" aria-label={`Maps: ${lead["Название"]}`}><Icon name="map" /></a> : <button type="button" className="quick-btn" disabled aria-label={`Maps: ${lead["Название"]}`}><Icon name="map" /></button>}
+      <Action className="quick-btn" href={lead.contacts?.telHref} label={`Позвонить, ${name}`}><Icon name="phone" /></Action>
+      <Action className="quick-btn zalo-btn" href={lead.contacts?.zaloHref} label={`Написать в Zalo, ${name}`} onClick={() => onZalo(lead)}>Zalo</Action>
+      <Action className="quick-btn" href={lead.contacts?.mapsHref} label={`Открыть карту, ${name}`}><Icon name="map" /></Action>
     </div>
   );
 }

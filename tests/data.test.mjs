@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   SHEET_COLUMNS, columnCoverage, parseCsv, parseRows, parseStage, normalizePhone,
   stageTabs, emptyView, viewFromSearch, searchFromView, visibleLeads, stageChoices,
+  optionCounts, optionLabel, hasSourceColumn, FUNNEL_STAGES,
 } from "../src/data.js";
 
 test("lead readiness maps to the three board groups", () => {
@@ -112,7 +113,60 @@ test("stage choices keep funnel order and always offer refusal outcomes", () => 
     ["2", "B", "X", "02 ресёрч"],
   ]);
   const raws = stageChoices(leads).map(stage => stage.raw);
-  assert.deepEqual(raws, ["02 ресёрч", "11 разработка", "✕ не писать", "✕ отказ"]);
+  assert.deepEqual(raws, [
+    ...FUNNEL_STAGES.map(stage => stage.raw),
+    "✕ не писать",
+    "✕ отказ",
+  ]);
+});
+
+test("stages 05–10 stay in the funnel even when the sheet has not used them", () => {
+  const leads = parseRows([
+    ["№", "Название", "Район", "Статус"],
+    ["1", "A", "X", "02 ресёрч"],
+  ]);
+  const tabs = stageTabs(leads);
+  for (const key of ["05", "06", "07", "08", "09", "10"]) {
+    const tab = tabs.find(item => item.key === key);
+    assert.ok(tab, key);
+    assert.equal(tab.count, 0, key);
+  }
+  assert.equal(tabs.find(tab => tab.key === "05").label, "Интервью проведено");
+  assert.equal(tabs.find(tab => tab.key === "06").label, "Демо отправлено");
+  assert.equal(tabs.find(tab => tab.key === "07").label, "Оплата");
+  assert.deepEqual(tabs.slice(-2).map(tab => tab.key), ["check", "closed"]);
+});
+
+test("Источник is an optional filter and is not required to read the sheet", () => {
+  const withSource = parseRows([
+    ["№", "Название", "Район", "Статус", "Источник"],
+    ["1", "Lan", "Phú Nhuận", "02 ресёрч", "Maps"],
+    ["2", "Mây", "Phú Nhuận", "02 ресёрч", "Facebook"],
+  ]);
+  assert.equal(hasSourceColumn(withSource), true);
+  const view = { ...emptyView(), sources: ["Maps"] };
+  assert.deepEqual(visibleLeads(withSource, { view }).map(lead => lead.id), ["1"]);
+  assert.equal(viewFromSearch(searchFromView(view)).sources[0], "Maps");
+
+  const withoutSource = parseRows([
+    ["№", "Название", "Район", "Статус"],
+    ["1", "Lan", "Phú Nhuận", "02 ресёрч"],
+  ]);
+  assert.equal(hasSourceColumn(withoutSource), false);
+  assert.equal(visibleLeads(withoutSource, { view: emptyView() }).length, 1);
+});
+
+test("Fit filter order is высокий, средний, низкий and a dash tourist value reads as нет", () => {
+  const leads = parseRows([
+    ["№", "Название", "Район", "Статус", "Fit", "Туристы"],
+    ["1", "A", "X", "02 ресёрч", "низкий", "—"],
+    ["2", "B", "X", "02 ресёрч", "высокий", "да"],
+    ["3", "C", "X", "02 ресёрч", "средний", "—"],
+    ["4", "D", "X", "02 ресёрч", "низкий", "да"],
+  ]);
+  assert.deepEqual(optionCounts(leads, "Fit").map(item => item.value), ["высокий", "средний", "низкий"]);
+  assert.equal(optionLabel("Туристы", "—"), "нет");
+  assert.equal(optionCounts(leads, "Туристы").find(item => item.value === "—").label, "нет");
 });
 
 test("every sheet column is visible in the card or the edit modal", () => {

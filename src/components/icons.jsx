@@ -18,6 +18,7 @@ const graphics = {
   whatsapp: <path d="M6 18l-1 3 3-1a8 8 0 1 0-2-2z" />,
   facebook: <path d="M14 8h3V4h-3c-2 0-4 2-4 4v2H8v4h2v6h4v-6h3l1-4h-4V8c0-.6.4-1 1-1z" />,
   back: <path d="M15 5 8 12l7 7" />,
+  sort: <path d="M8 6h12M8 12h8M8 18h4" />,
 };
 
 export function Icon({ name }) {

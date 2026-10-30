@@ -61,6 +61,7 @@ export function App() {
   const [showClosed, setShowClosed] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [stale, setStale] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [view, setView] = useState(() => viewFromSearch(window.location.search));
   const fileInput = useRef(null);
   const notesInput = useRef(null);
@@ -457,67 +458,79 @@ export function App() {
     }
   };
   const closedCount = tabs.find(tab => tab.key === "closed")?.count || 0;
+  const sortLabel = SORTS.find(item => item.id === view.sort)?.label || "Fit";
+  const canWrite = Boolean(token && source.kind === "google" && !leads.statusFallback);
 
   const overlayOpen = Boolean(selected || settingsOpen || editOpen || stageOpen || filterOpen);
   return <div className="app-shell">
     <div className="app-frame" inert={overlayOpen ? true : undefined}>
     <aside className="sidebar">
-      <div className="brand"><img src="/lotus.png" alt="" /><span>Приоритет</span></div>
+      <div className="brand"><img src="/lotus.png" alt="" /><span className="brand-name">Приоритет</span></div>
       <nav aria-label="Разделы CRM">
-        <button type="button" className={section === "leads" ? "nav-item active" : "nav-item"} onClick={() => setSection("leads")}><Icon name="leads" />Лиды</button>
-        <button type="button" className={section === "notes" ? "nav-item active" : "nav-item"} onClick={() => setSection("notes")}><Icon name="notes" />С заметками <small>{noteCount}</small></button>
-        <button type="button" className="nav-item" onClick={() => setSettingsOpen(true)}><Icon name="settings" />Подключение</button>
+        <button type="button" className={section === "leads" ? "nav-item active" : "nav-item"} aria-label="Лиды" onClick={() => setSection("leads")}><Icon name="leads" /><span className="nav-label">Лиды</span></button>
+        <button type="button" className={section === "notes" ? "nav-item active" : "nav-item"} aria-label="Мои заметки" onClick={() => setSection("notes")}><Icon name="notes" /><span className="nav-label">Мои заметки</span> <small>{noteCount}</small></button>
+        <button type="button" className="nav-item" aria-label="Подключение" onClick={() => setSettingsOpen(true)}><Icon name="settings" /><span className="nav-label">Подключение</span></button>
       </nav>
       <div className="sidebar-bottom"><span>CRM для Google Таблицы</span><span>Запись — через ваш Google-аккаунт</span></div>
     </aside>
     <main className="workspace">
+      <div className="mobile-chrome">
       <header className="topbar">
         <label className="search">
           <Icon name="search" />
-          <input aria-label="Поиск лидов" placeholder="Поиск по названию, адресу, статусу, заметке…" value={query} onChange={event => setQuery(event.target.value)} />
+          <input aria-label="Поиск лидов" placeholder="Поиск" value={query} onChange={event => setQuery(event.target.value)} />
           {query && <button type="button" aria-label="Очистить поиск" onClick={() => setQuery("")}><Icon name="close" /></button>}
         </label>
+        <div className="mobile-tools">
+          <button type="button" className="tool-btn" onClick={() => setFilterOpen(true)}>Фильтры ({filterCount})</button>
+          <button type="button" className="tool-btn sort-btn" aria-label={`Сортировка: ${sortLabel}`} aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}><Icon name="sort" />↓ {sortLabel}</button>
+        </div>
         <button type="button" className="source-status" onClick={refresh} title="Обновить данные из Google Таблицы" aria-label={sourceLabel}>
           <span className="sheet-mark"><Icon name="notes" /></span>
           <span><strong>{sourceLabel}</strong><small>{syncing ? "Загрузка…" : `Обновлено: ${readableDate(source.updatedAt)}`}</small></span>
           <Icon name="refresh" />
         </button>
       </header>
+      {sortOpen && (
+        <div className="sort-menu" role="listbox" aria-label="Сортировка">
+          {SORTS.map(item => (
+            <button key={item.id} type="button" role="option" aria-selected={view.sort === item.id} className={view.sort === item.id ? "selected" : ""} onClick={() => { setView(current => ({ ...current, sort: item.id })); setSortOpen(false); }}>↓ {item.label}</button>
+          ))}
+        </div>
+      )}
+      {!canWrite && source.kind !== "none" && <button type="button" className="connect-banner" onClick={() => setSettingsOpen(true)}>{sourceLabel}</button>}
+      {sheetWarning && <div className="soft-banner" role="status">{sheetWarning}</div>}
+      {syncError && !settingsOpen && <div className="soft-banner" role="status">{syncError}</div>}
+      {!wide && source.kind !== "none" && (
+        <div className="stage-tabs-wrap">
+          <div className="stage-tabs" role="tablist" aria-label="Стадии">
+            {tabs.map(tab => (
+              <button key={tab.key} type="button" role="tab" aria-selected={activeStage === tab.key} className={activeStage === tab.key ? "stage-tab selected" : "stage-tab"} onClick={() => setView(current => ({ ...current, stage: tab.key }))}>
+                <span>{tab.label}</span>
+                <span className="count">{tab.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      </div>
       <div className="section-heading">
         <div>
-          <h1>{section === "notes" ? "С заметками" : "Лиды"}</h1>
+          <h1>{section === "notes" ? "Мои заметки" : "Лиды"}</h1>
           <p>{source.kind === "none" ? "Подключите таблицу, чтобы увидеть воронку" : `${filtered.length} из ${leads.length}`}</p>
         </div>
         <a href={sheetUrl} target="_blank" rel="noreferrer">Таблица <Icon name="link" /></a>
       </div>
-      {sheetWarning && <div className="soft-banner" role="status">{sheetWarning}</div>}
-      {stale && <div className="stale-banner" role="status">В таблице есть новые данные</div>}
-      {syncError && !settingsOpen && <div className="soft-banner" role="status">{syncError}</div>}
       {source.kind !== "none" && (
         <div className="toolbar">
           <button type="button" className="secondary-btn" onClick={() => setFilterOpen(true)}><Icon name="filter" />Фильтры ({filterCount})</button>
-          <label className="sort-control">
-            <span>Сортировка</span>
-            <select aria-label="Сортировка" value={view.sort} onChange={event => setView({ ...view, sort: event.target.value })}>
-              {SORTS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </select>
-          </label>
+          <button type="button" className="tool-btn sort-btn" aria-label={`Сортировка: ${sortLabel}`} aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}><Icon name="sort" />↓ {sortLabel}</button>
           {wide && <button type="button" className={showClosed || activeStage === "closed" ? "secondary-btn selected" : "secondary-btn"} aria-pressed={showClosed || activeStage === "closed"} onClick={() => {
             if (showClosed || activeStage === "closed") {
               setShowClosed(false);
               if (activeStage === "closed") setView(current => ({ ...current, stage: defaultStageKey(leads.filter(lead => lead.stage.kind !== "closed")) || defaultStageKey(leads) }));
             } else setShowClosed(true);
           }}>✕ Закрытые ({closedCount})</button>}
-        </div>
-      )}
-      {!wide && source.kind !== "none" && (
-        <div className="stage-tabs" role="tablist" aria-label="Стадии">
-          {tabs.map(tab => (
-            <button key={tab.key} type="button" role="tab" aria-selected={activeStage === tab.key} className={activeStage === tab.key ? "stage-tab selected" : "stage-tab"} onClick={() => setView(current => ({ ...current, stage: tab.key }))}>
-              <span>{tab.label}</span>
-              <span className="count">{tab.count}</span>
-            </button>
-          ))}
         </div>
       )}
       {source.kind === "none" ? (
@@ -540,6 +553,11 @@ export function App() {
         />
       )}
     </main>
+    <nav className="tab-bar" aria-label="Разделы CRM">
+      <button type="button" className={section === "leads" ? "active" : ""} onClick={() => setSection("leads")}><Icon name="leads" />Лиды</button>
+      <button type="button" className={section === "notes" ? "active" : ""} onClick={() => setSection("notes")}><Icon name="notes" />Мои заметки <small>{noteCount}</small></button>
+      <button type="button" onClick={() => setSettingsOpen(true)}><Icon name="settings" />Подключение</button>
+    </nav>
     </div>
     {selected && (
       <LeadCard
@@ -568,13 +586,14 @@ export function App() {
         lead={selected}
         choices={stageChoices(leads)}
         saving={savingStage}
-        canWrite={Boolean(token && source.kind === "google" && !leads.statusFallback)}
+        canWrite={canWrite}
         onClose={() => { if (!savingStage) setStageOpen(false); }}
         onSave={saveStage}
+        onConnect={() => { setStageOpen(false); setSettingsOpen(true); }}
       />
     )}
     {filterOpen && (
-      <FilterSheet leads={leads} view={view} onChange={setView} onClose={() => setFilterOpen(false)} />
+      <FilterSheet leads={leads} view={view} resultCount={filtered.length} onChange={setView} onClose={() => setFilterOpen(false)} />
     )}
     {settingsOpen && (
       <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
@@ -625,6 +644,7 @@ export function App() {
         onSave={saveLead}
       />
     )}
+    {stale && <div className="stale-banner" role="status">В таблице есть новые данные</div>}
     {(message || error) && <div role="status" className={error ? "toast error" : "toast"}>{error || message}</div>}
   </div>;
 }

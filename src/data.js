@@ -12,12 +12,14 @@ export const SHEET_COLUMNS = [
   "Интервью: деталь", "Интервью VI", "Интервью EN", "Интервью: заметка",
 ];
 
+export const SOURCE_FIELD = "Источник";
+
 export const SEARCH_FIELDS = [
   "Название", "Район", "Ниша", "Этап", "Fit", "Готовность", "Флаги", "Хук", "Телефон",
-  "Адрес", "Статус", "Интервью: деталь", "Заметка", "Zalo", "Интервью: канал", "Партия",
+  "Адрес", "Статус", "Интервью: деталь", "Заметка", "Zalo", "Интервью: канал", "Партия", SOURCE_FIELD,
 ];
 
-export const SELECT_FIELDS = ["Статус", "Этап", "Готовность", "Fit", "Туристы", "Интервью: канал"];
+export const SELECT_FIELDS = ["Статус", "Этап", "Готовность", "Fit", "Туристы", "Интервью: канал", SOURCE_FIELD];
 
 export const LONG_FIELDS = [
   "Детали", "Ресёрч", "Оффер EN", "Оффер VI", "Хук", "Заметка",
@@ -27,7 +29,7 @@ export const LONG_FIELDS = [
 export const EDIT_GROUPS = [
   { id: "contacts", title: "Контакты", fields: ["Телефон", "Zalo", "WhatsApp", "Facebook"] },
   { id: "maps", title: "Карточка Maps", fields: ["Название", "Район", "Ниша", "Адрес", "Google Maps", "Рейтинг", "Отзывов", "Детали"] },
-  { id: "sales", title: "Продажа", fields: ["Статус", "Этап", "Готовность", "Fit", "Туристы", "Хук", "Флаги"] },
+  { id: "sales", title: "Продажа", fields: ["Статус", "Этап", "Готовность", "Fit", "Туристы", SOURCE_FIELD, "Хук", "Флаги"] },
   { id: "texts", title: "Тексты", fields: ["Оффер EN", "Оффер VI", "Интервью: канал", "Интервью: деталь", "Интервью VI", "Интервью EN", "Интервью: заметка", "Ресёрч", "Заметка"] },
   { id: "meta", title: "Служебное", fields: ["Дата", "Партия", "Редактура"] },
 ];
@@ -55,6 +57,20 @@ const FILTER_PARAMS = [
   ["batch", "batches"],
   ["channel", "channels"],
   ["readiness", "readiness"],
+  ["source", "sources"],
+];
+
+export const FUNNEL_STAGES = [
+  { key: "02", raw: "02 ресёрч" },
+  { key: "03", raw: "03 оффер готов" },
+  { key: "04", raw: "04 интервью: черновик" },
+  { key: "05", raw: "05 интервью проведено" },
+  { key: "06", raw: "06 демо отправлено" },
+  { key: "07", raw: "07 оплата" },
+  { key: "08", raw: "08 договор" },
+  { key: "09", raw: "09 подготовка" },
+  { key: "10", raw: "10 очередь" },
+  { key: "11", raw: "11 разработка" },
 ];
 
 const FIT_RANK = { "высокий": 0, "средний": 1, "низкий": 2 };
@@ -279,23 +295,26 @@ export function canonicalStageKey(value) {
 }
 
 export function stageTabs(leads) {
-  /** @type {Map<string, { key: string, order: number, kind: string, labels: Map<string, number>, count: number }>} */
-  const open = new Map();
+  /** @type {Map<string, { key: string, order: number, kind: string, labels: Map<string, number>, count: number, fallback: string }>} */
+  const open = new Map(FUNNEL_STAGES.map(stage => {
+    const parsed = parseStage(stage.raw);
+    return [stage.key, { key: stage.key, order: parsed.order, kind: "open", labels: new Map(), count: 0, fallback: shortStageLabel(parsed.label) }];
+  }));
   let checkCount = 0;
   let closedCount = 0;
   for (const lead of leads) {
     if (lead.stage.kind === "closed") { closedCount += 1; continue; }
     if (lead.stage.kind === "check") { checkCount += 1; continue; }
     const key = stageKey(lead.stage);
-    const current = open.get(key) || { key, order: lead.stage.order, kind: "open", labels: new Map(), count: 0 };
+    const current = open.get(key) || { key, order: lead.stage.order, kind: "open", labels: new Map(), count: 0, fallback: shortStageLabel(lead.stage.label) };
     current.count += 1;
     const label = shortStageLabel(lead.stage.label);
     current.labels.set(label, (current.labels.get(label) || 0) + 1);
     open.set(key, current);
   }
   const tabs = [...open.values()].map(tab => {
-    const label = [...tab.labels.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"))[0][0];
-    return { key: tab.key, order: tab.order, kind: "open", label, count: tab.count };
+    const ranked = [...tab.labels.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"));
+    return { key: tab.key, order: tab.order, kind: "open", label: ranked[0]?.[0] || tab.fallback, count: tab.count };
   }).sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, "ru"));
   tabs.push({ key: "check", order: 90, kind: "check", label: "? Проверить", count: checkCount });
   tabs.push({ key: "closed", order: 99, kind: "closed", label: "✕ Закрытые", count: closedCount });
@@ -309,6 +328,7 @@ export function leadInStage(lead, key) {
 
 export function stageChoices(leads) {
   const map = new Map();
+  for (const stage of FUNNEL_STAGES) map.set(stage.raw, parseStage(stage.raw));
   for (const lead of leads) {
     if (lead.stage?.raw) map.set(lead.stage.raw, lead.stage);
   }
@@ -328,6 +348,7 @@ export function emptyView() {
     batches: [],
     channels: [],
     readiness: [],
+    sources: [],
     sort: "fit",
   };
 }
@@ -374,7 +395,8 @@ export function matchesFilters(lead, view) {
     && includesOne(view.tourists, lead["Туристы"])
     && includesOne(view.batches, lead["Партия"])
     && includesOne(view.channels, lead["Интервью: канал"])
-    && includesOne(view.readiness, lead["Готовность"]);
+    && includesOne(view.readiness, lead["Готовность"])
+    && includesOne(view.sources, lead[SOURCE_FIELD]);
 }
 
 export function matchesQuery(lead, query, noteText = "") {
@@ -430,6 +452,25 @@ export function visibleLeads(leads, options = {}) {
   }).sort((a, b) => compareLeads(view.sort, a, b));
 }
 
+const FIT_ORDER = ["высокий", "средний", "низкий"];
+
+export function optionLabel(field, value) {
+  if (field === "Туристы" && value === "—") return "нет";
+  return value;
+}
+
+export function leadsWord(count) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "лид";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "лида";
+  return "лидов";
+}
+
+export function hasSourceColumn(leads) {
+  return leads.some(lead => Object.prototype.hasOwnProperty.call(lead, SOURCE_FIELD));
+}
+
 export function optionCounts(leads, field) {
   const counts = new Map();
   for (const lead of leads) {
@@ -437,9 +478,15 @@ export function optionCounts(leads, field) {
     if (!value) continue;
     counts.set(value, (counts.get(value) || 0) + 1);
   }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"))
-    .map(([value, count]) => ({ value, count }));
+  const items = [...counts.entries()].map(([value, count]) => ({ value, count, label: optionLabel(field, value) }));
+  if (field === "Fit") {
+    return items.sort((a, b) => {
+      const left = FIT_ORDER.indexOf(a.value.toLocaleLowerCase("ru"));
+      const right = FIT_ORDER.indexOf(b.value.toLocaleLowerCase("ru"));
+      return (left === -1 ? 99 : left) - (right === -1 ? 99 : right) || a.label.localeCompare(b.label, "ru");
+    });
+  }
+  return items.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ru"));
 }
 
 export function uniqueValues(leads, field) {
