@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "checkedAt": "2026-10-28",
+  "checkedAt": "2026-10-30",
   "files": {
     ".context/index.md": "90a78781af1322d0c09b5287e9b8503399f56d6b759e529e082089c8cde71393",
-    ".context/integration.md": "cd2d0a0d02154fe0c67b9a50ac4215b70b0c640f2bcf977d7f35f0bf21cd48e8",
+    ".context/integration.md": "58ec9c591c4608c091ff111345cad0f1748f7dfaebfe73650ca2c8f2966515ff",
     ".context/ui.md": "0a69bbb67dc19bb9395baf7a20df894cde86e5df88ae8d9febdc6a6f4548189e",
     ".gitignore": "b8ab006e5cedd891b4fb574e6a4ff3e41c03bc32297ff3716f646600189de86e",
     ".npmrc": "f7dbda001b627b3a792fb6929303b517f047f03916f2c55227e81216d38a2008",
@@ -17,7 +17,7 @@
     "public/lotus.png": "a8162485603ebe990f0f81a766f99b7c2479d6ac330bc4979ab4a7a5c270cf9f",
     "README.md": "fc1d19d0391db9984fbbff5d44abf59fc0ecb8cb00b8f132603bef81d37ec1e3",
     "scripts/prepare-sites-build.mjs": "b6a6adaa4fab3234676116dd1c9cb6611275ab9d92dd26f5bf402393e3744bf6",
-    "src/App.jsx": "2e4775de2309df446d41e172c1a8748b60948897b235ab7e589a1fd7affc54bc",
+    "src/App.jsx": "e6de80100bd5a58b6178d2be4fc2ed9a8477098370856dedde323f857c59ec27",
     "src/data.js": "df0887969d638e7b7729f5be4282f64c0c0adb3bb08d7ec2fbbc7f045d91381c",
     "src/googleSheet.js": "d57e18deb011dd42ed9618fd1e223d5092ca930b712c648c27ccac8ff9c271b4",
     "src/main.jsx": "832f752c6b6a454a26dbc4f2654f5bd633f2b103516c8c0abac648308c133a7e",

@@ -115,7 +115,7 @@ export function App() {
     loadingRef.current = true;
     if (!quiet) { setSyncing(true); setError(""); }
     try {
-      const rows = await readGoogle(accessToken, `'${SHEET_NAME}'!A:AA`);
+      const rows = await readGoogle(accessToken, `'${SHEET_NAME}'!A:AF`);
       applyRows(rows, "google", { quiet });
       return true;
     } catch (e) {
@@ -250,7 +250,7 @@ export function App() {
     </section></div>}
     {editOpen && selected && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !savingLead) setEditOpen(false); }}><section className="settings-modal edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
       <div className="modal-heading"><div><h2 id="edit-title">Изменить лида № {selected.id}</h2><p>Изменённые поля будут записаны в строку {selected.rowNumber} листа «{SHEET_NAME}».</p></div><button className="icon-button" aria-label="Закрыть" onClick={() => setEditOpen(false)} disabled={savingLead}><Icon name="close"/></button></div>
-      <div className="edit-fields">{source.rows[0].filter(field => field && field !== "№").map(field => <label key={field}>{field}{["Детали","Ресёрч","Оффер EN","Оффер VI","Хук","Заметка"].includes(field)
+      <div className="edit-fields">{source.rows[0].filter(field => field && field !== "№").map(field => <label key={field}>{field}{["Детали","Ресёрч","Оффер EN","Оффер VI","Хук","Заметка","Интервью: деталь","Интервью VI","Интервью EN","Интервью: заметка"].includes(field)
         ? <textarea value={editDraft[field] ?? ""} onChange={e => setEditDraft(previous => ({ ...previous, [field]:e.target.value }))}/>
         : <input value={editDraft[field] ?? ""} onChange={e => setEditDraft(previous => ({ ...previous, [field]:e.target.value }))}/>}</label>)}</div>
       <div className="edit-footer"><span>Перед записью CRM проверит, что строка и изменяемые ячейки остались прежними.</span><div><button className="secondary-btn" onClick={() => setEditOpen(false)} disabled={savingLead}>Отмена</button><button className="primary-btn" onClick={saveLead} disabled={savingLead}>{savingLead ? "Сохранение…" : "Сохранить в Google Таблице"}</button></div></div>
