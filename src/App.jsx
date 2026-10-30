@@ -1,37 +1,53 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SHEET_ID, SHEET_GID, SHEET_NAME, NOTES_KEY, CLIENT_KEY, GROUPS, readStored, parseRows, parseCsv, readableDate, safeUrl } from "./data";
-import { GOOGLE_SCOPE, REFRESH_INTERVAL_MS, SHEET_VALUES_URL, buildWriteRanges, rowRange } from "./googleSheet";
+import {
+  SHEET_ID, SHEET_GID, NOTES_KEY, CLIENT_KEY, SORTS,
+  readStored, parseRows, parseCsv, readableDate, shareText, whatsappHref,
+  viewFromSearch, searchFromView, activeFilterCount, visibleLeads, stageTabs,
+  defaultStageKey, stageChoices, patchLeadCells, parseStage, stageKey,
+} from "./data";
+import {
+  GOOGLE_SCOPE, REFRESH_INTERVAL_MS, SHEET_VALUES_URL, SHEET_READ_RANGE,
+  buildWriteRanges, rowRange, writeCell, isSheetConflict,
+} from "./googleSheet";
+import { EditModal } from "./components/EditModal.jsx";
+import { FilterSheet } from "./components/FilterSheet.jsx";
+import { Icon } from "./components/icons.jsx";
+import { LeadCard } from "./components/LeadCard.jsx";
+import { LeadList } from "./components/LeadList.jsx";
+import { StageSheet } from "./components/StageSheet.jsx";
 
-const icons = { search:"\uE721", leads:"\uE8B7", notes:"\uE70B", settings:"\uE713", refresh:"\uE72C", link:"\uE71B", phone:"\uE717", copy:"\uE8C8", save:"\uE74E", close:"\uE8BB", upload:"\uE898", download:"\uE896", map:"\uE707", edit:"\uE70F" };
-const Icon = ({ name }) => <span className="icon" aria-hidden="true">{icons[name]}</span>;
 const sheetUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${SHEET_GID}`;
 
-function LinkButton({ href, icon, children }) {
-  const url = safeUrl(href);
-  return url && <a className="text-link" href={url} target="_blank" rel="noreferrer"><Icon name={icon}/>{children}<Icon name="link"/></a>;
+function useWideScreen() {
+  const query = "(min-width: 1024px)";
+  const [wide, setWide] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setWide(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return wide;
 }
 
-function Offer({ lead, language, setLanguage, onCopy, large = false }) {
-  return <div className={large ? "offer-full" : "offer-pane"}>
-    <div className="pane-top"><h3>Оффер для отправки</h3><button className={large ? "secondary-btn" : "icon-button"} onClick={onCopy} aria-label="Скопировать оффер"><Icon name="copy"/>{large && "Скопировать"}</button></div>
-    <div className="language-tabs">{["EN","VI"].map(lang => <button key={lang} className={language === lang ? "selected" : ""} onClick={() => setLanguage(lang)}>{lang === "EN" ? "English" : "Tiếng Việt"}</button>)}</div>
-    <div className="offer-text">{lead[`Оффер ${language}`] || "Текст оффера не указан."}</div>
-  </div>;
+function googleOauth() {
+  return /** @type {any} */ (window).google?.accounts?.oauth2 || null;
 }
 
 export function App() {
-  const [source, setSource] = useState({ rows:[], updatedAt:null, kind:"none" });
+  const wide = useWideScreen();
+  const [source, setSource] = useState({ rows: [], updatedAt: null, kind: "none" });
   const [notes, setNotes] = useState(() => readStored(NOTES_KEY, {}));
   const [query, setQuery] = useState("");
   const [section, setSection] = useState("leads");
   const [selectedId, setSelectedId] = useState(null);
   const [draft, setDraft] = useState("");
-  const [offerLanguage, setOfferLanguage] = useState("EN");
+  const [language, setLanguage] = useState("EN");
   const [detailTab, setDetailTab] = useState("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [clientId, setClientId] = useState(() => import.meta.env.VITE_GOOGLE_CLIENT_ID || localStorage.getItem(CLIENT_KEY) || "");
   const [token, setToken] = useState("");
-  const [googleReady, setGoogleReady] = useState(Boolean(window.google?.accounts?.oauth2));
+  const [googleReady, setGoogleReady] = useState(Boolean(googleOauth()));
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -39,36 +55,134 @@ export function App() {
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState({});
   const [savingLead, setSavingLead] = useState(false);
+  const [stageOpen, setStageOpen] = useState(false);
+  const [savingStage, setSavingStage] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
   const [syncError, setSyncError] = useState("");
+  const [stale, setStale] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [view, setView] = useState(() => viewFromSearch(window.location.search));
   const fileInput = useRef(null);
   const notesInput = useRef(null);
-  const loadingRef = useRef(false);
+  const zaloTimer = useRef(0);
+  const queueRef = useRef(Promise.resolve());
+  const pendingRows = useRef(null);
+  const gateRef = useRef({ edit: false, stage: false, saving: false });
+  const sourceRef = useRef(source);
+  const loadRef = useRef(/** @type {any} */ (null));
 
-  const leads = useMemo(() => { try { return parseRows(source.rows); } catch { return []; } }, [source]);
-  const matches = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    return leads.filter(lead => {
-      if (section === "notes" && !notes[lead.id]?.text?.trim()) return false;
-      if (!needle) return true;
-      return ["Название","Район","Ниша","Этап","Fit","Готовность","Флаги","Хук","Телефон"]
-        .some(field => lead[field]?.toLocaleLowerCase().includes(needle)) || notes[lead.id]?.text?.toLocaleLowerCase().includes(needle);
-    });
-  }, [leads, notes, query, section]);
-  const grouped = useMemo(() => Object.fromEntries(GROUPS.map(group => [group.id,
-    matches.filter(lead => lead.bucket === group.id).sort((a,b) => {
-      const rank = { "высокий":0, "средний":1, "низкий":2 };
-      return (rank[a.Fit?.toLowerCase()] ?? 3) - (rank[b.Fit?.toLowerCase()] ?? 3) || Number(a.id) - Number(b.id);
-    })
-  ])), [matches]);
-  const selected = matches.find(lead => lead.id === selectedId) || GROUPS.map(group => grouped[group.id][0]).find(Boolean) || null;
+  gateRef.current = { edit: editOpen, stage: stageOpen, saving: savingLead || savingStage };
+  sourceRef.current = source;
+
+  const leads = useMemo(() => {
+    try { return parseRows(source.rows); }
+    catch { return []; }
+  }, [source]);
+  const headers = useMemo(() => (source.rows[0] || []).map(value => String(value ?? "").trim()), [source.rows]);
+  const filtered = useMemo(() => visibleLeads(leads, { view, query, notes, section }), [leads, view, query, notes, section]);
+  const tabs = useMemo(() => {
+    const counts = new Map(stageTabs(filtered).map(tab => [tab.key, tab.count]));
+    return stageTabs(leads).map(tab => ({ ...tab, count: counts.get(tab.key) || 0 }));
+  }, [leads, filtered]);
+  const selected = leads.find(lead => lead.id === selectedId) || null;
   const noteCount = Object.values(notes).filter(note => note.text?.trim()).length;
+  const activeStage = view.stage || defaultStageKey(leads);
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+  const filterCount = activeFilterCount(view);
   const sourceLabel = source.kind === "google" ? (token ? "Google Таблица · запись" : "Google · переподключить") : source.kind === "csv" ? "CSV с этого компьютера" : "Google не подключён";
+  const sheetWarning = leads.warning || "";
 
-  useEffect(() => { if (selected?.id !== selectedId) setSelectedId(selected?.id || null); }, [selected?.id, selectedId]);
-  useEffect(() => { setDraft(selected ? notes[selected.id]?.text || "" : ""); setSaveState(""); }, [selected?.id]);
-  useEffect(() => { if (message || error) { const timer = setTimeout(() => { setMessage(""); setError(""); }, 7000); return () => clearTimeout(timer); } }, [message, error]);
+  const applyRows = (rows, kind, { quiet = false } = {}) => {
+    const parsed = parseRows(rows);
+    setSource({ rows, updatedAt: new Date().toISOString(), kind });
+    setSyncError("");
+    pendingRows.current = null;
+    setStale(false);
+    if (!quiet) {
+      setSettingsOpen(false);
+      setMessage(`Загружено ${parsed.length} лидов.`);
+    }
+  };
+
+  const performLoad = async (accessToken, { quiet = false, force = false } = {}) => {
+    if (!quiet) { setSyncing(true); setError(""); }
+    try {
+      const rows = await readGoogle(accessToken, SHEET_READ_RANGE);
+      const gate = gateRef.current;
+      const same = JSON.stringify(rows) === JSON.stringify(sourceRef.current.rows);
+      if (!force && gate.saving) return true;
+      if (!force && (gate.edit || gate.stage)) {
+        if (!same) {
+          pendingRows.current = rows;
+          setStale(true);
+        }
+        return true;
+      }
+      if (!force && same && sourceRef.current.kind === "google") return true;
+      applyRows(rows, "google", { quiet });
+      return true;
+    } catch (loadError) {
+      const reason = /** @type {any} */ (loadError);
+      if (reason.status === 401) { setToken(""); setSyncError("Сессия Google истекла. Подключите аккаунт снова."); }
+      else setSyncError(reason.message || "Не удалось обновить таблицу.");
+      if (!quiet) setError(reason.message || "Не удалось обновить таблицу.");
+      return false;
+    } finally {
+      if (!quiet) setSyncing(false);
+    }
+  };
+
+  const loadGoogle = (accessToken, options) => {
+    const run = queueRef.current.then(() => performLoad(accessToken, options));
+    queueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  };
+  loadRef.current = loadGoogle;
+
   useEffect(() => {
-    if (!settingsOpen || window.google?.accounts?.oauth2) { if (window.google?.accounts?.oauth2) setGoogleReady(true); return; }
+    if (view.stage || !leads.length) return;
+    const key = defaultStageKey(leads);
+    if (key) setView(current => current.stage ? current : { ...current, stage: key });
+  }, [leads, view.stage]);
+
+  useEffect(() => {
+    const next = searchFromView(view);
+    const current = window.location.search.replace(/^\?/, "");
+    if (next === current) return;
+    const url = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", url);
+  }, [view]);
+
+  useEffect(() => {
+    const onPop = () => setView(viewFromSearch(window.location.search));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    setDraft(selectedId ? notesRef.current[selectedId]?.text || "" : "");
+    setSaveState("");
+  }, [selectedId]);
+  useEffect(() => {
+    if (message || error) {
+      const timer = window.setTimeout(() => { setMessage(""); setError(""); }, 7000);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [message, error]);
+  useEffect(() => () => window.clearTimeout(zaloTimer.current), []);
+  useEffect(() => {
+    const locked = settingsOpen || editOpen || stageOpen || filterOpen || Boolean(selectedId);
+    document.body.classList.toggle("scroll-lock", locked);
+    return () => document.body.classList.remove("scroll-lock");
+  }, [settingsOpen, editOpen, stageOpen, filterOpen, selectedId]);
+  useEffect(() => {
+    if (!settingsOpen || googleOauth()) {
+      if (googleOauth()) setGoogleReady(true);
+      return undefined;
+    }
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
     script.onload = () => setGoogleReady(true);
@@ -77,104 +191,220 @@ export function App() {
     return () => { script.onload = null; script.onerror = null; };
   }, [settingsOpen]);
   useEffect(() => {
-    if (!token) return;
-    const check = () => { if (document.visibilityState === "visible" && !editOpen) loadGoogle(token, { quiet:true }); };
+    if (!token) return undefined;
+    const check = () => { if (document.visibilityState === "visible") loadRef.current(token, { quiet: true }); };
     const timer = window.setInterval(check, REFRESH_INTERVAL_MS);
     document.addEventListener("visibilitychange", check);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", check); };
-  }, [token, editOpen]);
+  }, [token]);
+  useEffect(() => {
+    if (editOpen || stageOpen || savingLead || savingStage) return;
+    const rows = pendingRows.current;
+    if (!rows) return;
+    pendingRows.current = null;
+    setStale(false);
+    try { parseRows(rows); setSource({ rows, updatedAt: new Date().toISOString(), kind: "google" }); setSyncError(""); }
+    catch (applyError) { setSyncError(/** @type {Error} */ (applyError).message); }
+  }, [editOpen, stageOpen, savingLead, savingStage]);
+  useEffect(() => {
+    const onKey = event => {
+      if (event.key !== "Escape") return;
+      if (stageOpen && !savingStage) setStageOpen(false);
+      else if (filterOpen) setFilterOpen(false);
+      else if (editOpen && !savingLead) setEditOpen(false);
+      else if (settingsOpen) setSettingsOpen(false);
+      else if (selectedId) setSelectedId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stageOpen, filterOpen, editOpen, settingsOpen, selectedId, savingStage, savingLead]);
 
   const saveNote = () => {
     if (!selected) return;
     const next = { ...notes, [selected.id]: { text: draft, updatedAt: new Date().toISOString() } };
-    try { localStorage.setItem(NOTES_KEY, JSON.stringify(next)); setNotes(next); setSaveState("Сохранено локально"); setMessage("Заметка сохранена на этом компьютере."); }
-    catch { setError("Не удалось сохранить заметку. Проверьте свободное место браузера."); }
-  };
-  const applyRows = (rows, kind, { quiet = false } = {}) => {
-    const parsed = parseRows(rows);
-    const next = { rows, updatedAt: new Date().toISOString(), kind };
-    setSource(next);
-    setSyncError("");
-    if (!quiet) { setSettingsOpen(false); setMessage(`Загружено ${parsed.length} лидов.`); }
+    try {
+      localStorage.setItem(NOTES_KEY, JSON.stringify(next));
+      setNotes(next);
+      setSaveState("Сохранено локально");
+      setMessage("Заметка сохранена на этом компьютере.");
+    } catch {
+      setError("Не удалось сохранить заметку. Проверьте свободное место браузера.");
+    }
   };
   const importCsv = async event => {
     const file = event.target.files?.[0];
     if (!file) return;
     try { setToken(""); applyRows(parseCsv(await file.text()), "csv"); setError(""); }
-    catch (e) { setError(e.message || "Не удалось прочитать CSV."); }
+    catch (importError) { setError(importError.message || "Не удалось прочитать CSV."); }
     event.target.value = "";
   };
   const readGoogle = async (accessToken, range, renderOption = "FORMATTED_VALUE") => {
     const response = await fetch(`${SHEET_VALUES_URL}/${encodeURIComponent(range)}?valueRenderOption=${renderOption}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { const reason = new Error(result.error?.message || `Ошибка Google Sheets: ${response.status}`); reason.status = response.status; throw reason; }
+    if (!response.ok) {
+      const reason = /** @type {Error & { status?: number }} */ (new Error(result.error?.message || `Ошибка Google Sheets: ${response.status}`));
+      reason.status = response.status;
+      throw reason;
+    }
     return result.values || [];
-  };
-  const loadGoogle = async (accessToken, { quiet = false } = {}) => {
-    if (loadingRef.current) return false;
-    loadingRef.current = true;
-    if (!quiet) { setSyncing(true); setError(""); }
-    try {
-      const rows = await readGoogle(accessToken, `'${SHEET_NAME}'!A:AF`);
-      applyRows(rows, "google", { quiet });
-      return true;
-    } catch (e) {
-      if (e.status === 401) { setToken(""); setSyncError("Сессия Google истекла. Подключите аккаунт снова."); }
-      else setSyncError(e.message || "Не удалось обновить таблицу.");
-      if (!quiet) setError(e.message || "Не удалось обновить таблицу.");
-      return false;
-    } finally { loadingRef.current = false; if (!quiet) setSyncing(false); }
   };
   const connectGoogle = () => {
     const id = clientId.trim();
     if (!id) { setError("Вставьте OAuth Client ID для этого сайта."); return; }
-    if (!window.google?.accounts?.oauth2) { setError("Сервис Google ещё загружается. Повторите через несколько секунд."); return; }
-    localStorage.setItem(CLIENT_KEY, id); setError("");
+    const oauth = googleOauth();
+    if (!oauth) { setError("Сервис Google ещё загружается. Повторите через несколько секунд."); return; }
+    localStorage.setItem(CLIENT_KEY, id);
+    setError("");
     try {
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: id, scope: GOOGLE_SCOPE,
-        callback: result => { if (result.error) { setError(result.error_description || result.error); return; } setToken(result.access_token); loadGoogle(result.access_token); },
-        error_callback: result => setError(result.message || result.type || "Вход Google не завершён.")
+      const client = oauth.initTokenClient({
+        client_id: id,
+        scope: GOOGLE_SCOPE,
+        callback: result => {
+          if (result.error) { setError(result.error_description || result.error); return; }
+          setToken(result.access_token);
+          loadGoogle(result.access_token);
+        },
+        error_callback: result => setError(result.message || result.type || "Вход Google не завершён."),
       });
       client.requestAccessToken();
-    } catch (e) { setError(e.message || "Не удалось подключить Google."); }
+    } catch (connectError) {
+      setError(connectError.message || "Не удалось подключить Google.");
+    }
   };
   const refresh = () => token ? loadGoogle(token) : setSettingsOpen(true);
+  const openLead = id => { setSelectedId(id); setDetailTab("overview"); };
   const openLeadEdit = () => {
+    if (!selected) return;
     if (!token || source.kind !== "google") { setSettingsOpen(true); return; }
-    setEditDraft(Object.fromEntries(source.rows[0].filter(field => field && field !== "№").map(field => [field, selected[field] || ""])));
-    setEditOpen(true); setError("");
+    const fields = headers.filter(field => field && field !== "№");
+    setEditDraft(Object.fromEntries(fields.map(field => [field, selected[field] || ""])));
+    gateRef.current = { ...gateRef.current, edit: true };
+    setEditOpen(true);
+    setError("");
+  };
+  const readLiveRow = async lead => {
+    const currentRange = rowRange(lead.rowNumber, Math.max(headers.length - 1, 0));
+    const [liveValues, liveFormulas] = await Promise.all([
+      readGoogle(token, currentRange).then(rows => rows[0] || []),
+      readGoogle(token, currentRange, "FORMULA").then(rows => rows[0] || []),
+    ]);
+    return { liveValues, liveFormulas };
+  };
+  const postUpdates = async data => {
+    const response = await fetch(`${SHEET_VALUES_URL}:batchUpdate`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ valueInputOption: "RAW", data }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const reason = /** @type {Error & { status?: number }} */ (new Error(result.error?.message || `Ошибка записи: ${response.status}`));
+      reason.status = response.status;
+      throw reason;
+    }
+    if (result.totalUpdatedCells !== data.length) throw new Error("Google не подтвердил запись всех изменённых ячеек. Проверьте таблицу.");
   };
   const saveLead = async () => {
     if (!selected || !token || source.kind !== "google") return;
-    setSavingLead(true); setError("");
+    const lead = selected;
+    const previousSource = source;
+    gateRef.current = { ...gateRef.current, saving: true };
+    setSavingLead(true);
+    setError("");
+    let patched = false;
     try {
-      const headers = source.rows[0].map(value => String(value ?? "").trim());
-      const currentRange = rowRange(selected.rowNumber, headers.length - 1);
-      const [liveValues, liveFormulas] = await Promise.all([
-        readGoogle(token, currentRange).then(rows => rows[0] || []),
-        readGoogle(token, currentRange, "FORMULA").then(rows => rows[0] || [])
-      ]);
-      const data = buildWriteRanges({ headers, lead:selected, draft:editDraft, liveValues, liveFormulas });
+      const { liveValues, liveFormulas } = await readLiveRow(lead);
+      const data = buildWriteRanges({ headers, lead, draft: editDraft, liveValues, liveFormulas });
       if (!data.length) { setEditOpen(false); setMessage("Изменений для сохранения нет."); return; }
-      const response = await fetch(`${SHEET_VALUES_URL}:batchUpdate`, { method:"POST", headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" }, body:JSON.stringify({ valueInputOption:"RAW", data }) });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) { const reason = new Error(result.error?.message || `Ошибка записи: ${response.status}`); reason.status = response.status; throw reason; }
-      if (result.totalUpdatedCells !== data.length) throw new Error("Google не подтвердил запись всех изменённых ячеек. Проверьте таблицу.");
+      const changes = {};
+      headers.forEach(field => {
+        if (!field || field === "№") return;
+        const next = String(editDraft[field] ?? "").trim();
+        if (next !== String(lead[field] ?? "").trim()) changes[field] = next;
+      });
+      patched = true;
+      setSource(current => ({ ...current, rows: patchLeadCells(current.rows, lead, changes) }));
+      await postUpdates(data);
+      gateRef.current = { ...gateRef.current, edit: false };
       setEditOpen(false);
-      const reread = await loadGoogle(token, { quiet:true });
+      const reread = await loadGoogle(token, { quiet: true, force: true });
+      setSelectedId(lead.id);
       if (reread) setMessage(`Сохранено в Google Таблице: ${data.length} полей.`);
       else setError("Изменения записаны, но перечитать таблицу не удалось. Нажмите обновление.");
-    } catch (e) {
-      if (e.status === 401) setToken("");
-      setError(e.message || "Не удалось сохранить изменения.");
-    } finally { setSavingLead(false); }
+    } catch (saveError) {
+      const reason = /** @type {any} */ (saveError);
+      if (patched) setSource(previousSource);
+      if (reason.status === 401) setToken("");
+      if (isSheetConflict(reason)) {
+        await loadGoogle(token, { quiet: true, force: true });
+        setSelectedId(lead.id);
+      }
+      setError(reason.message || "Не удалось сохранить изменения.");
+    } finally {
+      gateRef.current = { ...gateRef.current, saving: false };
+      setSavingLead(false);
+    }
+  };
+  const saveStage = async (raw, markRefusal) => {
+    if (!selected) return;
+    if (!token || source.kind !== "google") {
+      setError("Подключите Google, чтобы записать стадию.");
+      setSettingsOpen(true);
+      return;
+    }
+    if (leads.statusFallback || !headers.includes("Статус")) {
+      setError("В листе нет столбца «Статус». Запись стадии недоступна.");
+      return;
+    }
+    const lead = selected;
+    const previousSource = source;
+    const changes = { "Статус": raw };
+    if (markRefusal) changes["Этап"] = "отказ";
+    gateRef.current = { ...gateRef.current, saving: true };
+    setSavingStage(true);
+    setError("");
+    let patched = false;
+    try {
+      const { liveValues, liveFormulas } = await readLiveRow(lead);
+      const data = markRefusal
+        ? buildWriteRanges({ headers, lead, draft: { ...lead, ...changes }, liveValues, liveFormulas })
+        : writeCell({ headers, lead, field: "Статус", value: raw, liveValues, liveFormulas });
+      if (!data.length) { setStageOpen(false); setMessage("Изменений для сохранения нет."); return; }
+      patched = true;
+      setSource(current => ({ ...current, rows: patchLeadCells(current.rows, lead, changes) }));
+      const nextStage = parseStage(raw);
+      setView(current => ({ ...current, stage: stageKey(nextStage) }));
+      if (nextStage.kind === "closed") setShowClosed(true);
+      gateRef.current = { ...gateRef.current, stage: false };
+      setStageOpen(false);
+      await postUpdates(data);
+      const reread = await loadGoogle(token, { quiet: true, force: true });
+      setSelectedId(lead.id);
+      if (reread) setMessage("Стадия записана в таблицу.");
+      else setError("Стадия записана, но перечитать таблицу не удалось. Нажмите обновление.");
+    } catch (saveError) {
+      const reason = /** @type {any} */ (saveError);
+      if (patched) setSource(previousSource);
+      await loadGoogle(token, { quiet: true, force: true });
+      setSelectedId(lead.id);
+      if (reason.status === 401) setToken("");
+      setStageOpen(false);
+      setError(isSheetConflict(reason) ? "Лид изменён в таблице, обновили данные" : (reason.message || "Не удалось сохранить стадию."));
+    } finally {
+      gateRef.current = { ...gateRef.current, saving: false };
+      setSavingStage(false);
+    }
   };
   const exportNotes = () => {
-    const blob = new Blob([JSON.stringify({ spreadsheetId: SHEET_ID, exportedAt: new Date().toISOString(), notes }, null, 2)], { type:"application/json" });
-    const url = URL.createObjectURL(blob), link = document.createElement("a");
-    link.href = url; link.download = "lead-crm-notes.json"; document.body.appendChild(link); link.click(); link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const blob = new Blob([JSON.stringify({ spreadsheetId: SHEET_ID, exportedAt: new Date().toISOString(), notes }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "lead-crm-notes.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   const importNotes = async event => {
     const file = event.target.files?.[0];
@@ -185,76 +415,236 @@ export function App() {
       const cleaned = Object.fromEntries(Object.entries(payload.notes).filter(([id, item]) => /^\d+$/.test(id) && typeof item?.text === "string").map(([id, item]) => [id, { text: item.text, updatedAt: item.updatedAt || new Date().toISOString() }]));
       const next = { ...notes, ...cleaned };
       localStorage.setItem(NOTES_KEY, JSON.stringify(next));
-      setNotes(next); setDraft(selected ? next[selected.id]?.text || "" : "");
+      setNotes(next);
+      setDraft(selected ? next[selected.id]?.text || "" : "");
       setMessage(`Восстановлено ${Object.keys(cleaned).length} заметок.`);
-    } catch (e) { setError(e.message || "Не удалось восстановить заметки."); }
+    } catch (importError) {
+      setError(importError.message || "Не удалось восстановить заметки.");
+    }
     event.target.value = "";
   };
-  const copyOffer = async () => {
-    const text = selected?.[`Оффер ${offerLanguage}`];
-    if (!text) return;
-    try { await navigator.clipboard.writeText(text); setMessage("Оффер скопирован."); }
-    catch { setError("Не удалось скопировать текст."); }
+  const openZalo = async lead => {
+    if (!lead?.contacts?.zaloHref) return;
+    const text = shareText(lead, detailTab, language);
+    if (text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        setError("");
+        setMessage("Текст скопирован · вставьте в Zalo");
+      } catch {
+        setMessage("");
+        setError("Не удалось скопировать текст.");
+      }
+    }
+    window.clearTimeout(zaloTimer.current);
+    zaloTimer.current = window.setTimeout(() => {
+      window.open(lead.contacts.zaloHref, "_blank", "noopener,noreferrer");
+    }, 700);
   };
+  const openWhatsApp = lead => {
+    const href = whatsappHref(lead, shareText(lead, detailTab, language));
+    if (href) window.open(href, "_blank", "noopener,noreferrer");
+  };
+  const copyCurrent = async () => {
+    if (!selected) return;
+    const text = shareText(selected, detailTab, language);
+    if (!text) { setError("В этой вкладке нет текста для копирования."); return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      setError("");
+      setMessage("Текст скопирован.");
+    } catch {
+      setError("Не удалось скопировать текст.");
+    }
+  };
+  const closedCount = tabs.find(tab => tab.key === "closed")?.count || 0;
+  const sortLabel = SORTS.find(item => item.id === view.sort)?.label || "Fit";
+  const canWrite = Boolean(token && source.kind === "google" && !leads.statusFallback);
 
+  const overlayOpen = Boolean(selected || settingsOpen || editOpen || stageOpen || filterOpen);
   return <div className="app-shell">
+    <div className="app-frame" inert={overlayOpen ? true : undefined}>
     <aside className="sidebar">
-      <div className="brand"><img src="/lotus.png" alt=""/><span>Приоритет</span></div>
+      <div className="brand"><img src="/lotus.png" alt="" /><span className="brand-name">Приоритет</span></div>
       <nav aria-label="Разделы CRM">
-        <button className={section === "leads" ? "nav-item active" : "nav-item"} onClick={() => setSection("leads")}><Icon name="leads"/>Лиды</button>
-        <button className={section === "notes" ? "nav-item active" : "nav-item"} onClick={() => setSection("notes")}><Icon name="notes"/>С заметками <small>{noteCount}</small></button>
-        <button className="nav-item" onClick={() => setSettingsOpen(true)}><Icon name="settings"/>Подключение</button>
+        <button type="button" className={section === "leads" ? "nav-item active" : "nav-item"} aria-label="Лиды" onClick={() => setSection("leads")}><Icon name="leads" /><span className="nav-label">Лиды</span></button>
+        <button type="button" className={section === "notes" ? "nav-item active" : "nav-item"} aria-label="Мои заметки" onClick={() => setSection("notes")}><Icon name="notes" /><span className="nav-label">Мои заметки</span> <small>{noteCount}</small></button>
+        <button type="button" className="nav-item" aria-label="Подключение" onClick={() => setSettingsOpen(true)}><Icon name="settings" /><span className="nav-label">Подключение</span></button>
       </nav>
       <div className="sidebar-bottom"><span>CRM для Google Таблицы</span><span>Запись — через ваш Google-аккаунт</span></div>
     </aside>
     <main className="workspace">
+      <div className="mobile-chrome">
       <header className="topbar">
-        <label className="search"><Icon name="search"/><input aria-label="Поиск лидов" placeholder="Поиск по названию, району, нише, заметке..." value={query} onChange={e => setQuery(e.target.value)}/>{query && <button aria-label="Очистить поиск" onClick={() => setQuery("")}><Icon name="close"/></button>}</label>
-        <button className="source-status" onClick={refresh} title="Обновить данные из Google Таблицы"><span className="sheet-mark"><Icon name="notes"/></span><span><strong>{sourceLabel}</strong><small>{syncing ? "Загрузка…" : `Обновлено: ${readableDate(source.updatedAt)}`}</small></span><Icon name="refresh"/></button>
+        <label className="search">
+          <Icon name="search" />
+          <input aria-label="Поиск лидов" placeholder="Поиск" value={query} onChange={event => setQuery(event.target.value)} />
+          {query && <button type="button" aria-label="Очистить поиск" onClick={() => setQuery("")}><Icon name="close" /></button>}
+        </label>
+        <div className="mobile-tools">
+          <button type="button" className="tool-btn" onClick={() => setFilterOpen(true)}>Фильтры ({filterCount})</button>
+          <button type="button" className="tool-btn sort-btn" aria-label={`Сортировка: ${sortLabel}`} aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}><Icon name="sort" />↓ {sortLabel}</button>
+        </div>
+        <button type="button" className="source-status" onClick={refresh} title="Обновить данные из Google Таблицы" aria-label={sourceLabel}>
+          <span className="sheet-mark"><Icon name="notes" /></span>
+          <span><strong>{sourceLabel}</strong><small>{syncing ? "Загрузка…" : `Обновлено: ${readableDate(source.updatedAt)}`}</small></span>
+          <Icon name="refresh" />
+        </button>
       </header>
-      <section className="board" aria-label="Группы лидов">
-        {GROUPS.map(group => <div className={`board-column ${group.id}`} key={group.id}>
-          <div className="column-heading"><span className="state-dot"/><h2>{group.title}</h2><span className="count">{grouped[group.id].length}</span></div>
-          <div className="column-labels"><span>Название / Район · Ниша</span><span>Fit</span><span>Контакты</span></div>
-          <div className="lead-list">{grouped[group.id].length ? grouped[group.id].map(lead => <div key={lead.id} className={selected?.id === lead.id ? "lead-row selected" : "lead-row"}>
-            <button className="lead-select" onClick={() => { setSelectedId(lead.id); setDetailTab("overview"); }}>
-              <span className="lead-main"><strong title={lead["Название"]}>{lead["Название"]}</strong><small>{lead["Район"] || "Район не указан"} · {lead["Ниша"] || "Ниша не указана"}</small></span>
-              <span className={`fit fit-${lead.Fit?.toLowerCase() || "unknown"}`}>{lead.Fit || "—"}</span>
-              {notes[lead.id]?.text?.trim() && <span className="note-marker" title="Есть локальная заметка"><Icon name="notes"/></span>}
-            </button>
-            <span className="lead-actions">
-              {lead["Телефон"] && <a href={`tel:${lead["Телефон"].replace(/[^+\d]/g,"")}`} title="Позвонить" aria-label={`Позвонить: ${lead["Название"]}`}><Icon name="phone"/></a>}
-              {safeUrl(lead["Google Maps"]) && <a href={safeUrl(lead["Google Maps"])} target="_blank" rel="noreferrer" title="Google Maps" aria-label={`Google Maps: ${lead["Название"]}`}><Icon name="map"/></a>}
-              {safeUrl(lead["Facebook"]) && <a href={safeUrl(lead["Facebook"])} target="_blank" rel="noreferrer" title="Facebook" aria-label={`Facebook: ${lead["Название"]}`}><Icon name="link"/></a>}
-            </span>
-          </div>) : <div className="empty-column">Здесь пока нет лидов</div>}</div>
-        </div>)}
-      </section>
-      {selected ? <section className="inspector" aria-label="Карточка лида">
-        <div className="inspector-head"><div><div className="inspector-title"><h2>{selected["Название"]}</h2><span className={`readiness ${selected.bucket}`}>{selected["Готовность"] || "Проверить"}</span></div><p>{selected["Район"]} · {selected["Ниша"] || "Ниша не указана"} · № {selected.id}</p></div><div className="inspector-head-tools"><button className="secondary-btn edit-lead-button" onClick={openLeadEdit}><Icon name="edit"/>{token && source.kind === "google" ? "Изменить в таблице" : "Подключить для изменений"}</button><div className="detail-tabs" role="tablist" aria-label="Детали лида">{[["overview","Обзор"],["research","Ресёрч"],["offer","Оффер"]].map(([id,label]) => <button key={id} role="tab" aria-selected={detailTab===id} className={detailTab===id?"selected":""} onClick={() => setDetailTab(id)}>{label}</button>)}</div></div></div>
-        {detailTab === "overview" && <div className="inspector-grid">
-          <div className="info-pane"><h3>Основная информация <small>из таблицы</small></h3><dl>{[["Район","Район"],["Ниша","Ниша"],["Этап","Этап"],["Fit","Fit"],["Флаги","Флаги"],["Туристы","Туристы"],["Рейтинг","Рейтинг"],["Отзывов","Отзывов"]].map(([label,key]) => <div key={key}><dt>{label}</dt><dd>{selected[key] || "—"}</dd></div>)}</dl><p className="mini-source">{selected["Детали"] || "Дополнительных сведений нет."}</p></div>
-          <div className="action-pane"><h3>Хук для контакта</h3><div className="hook">{selected["Хук"] || "Хук пока не указан в таблице."}</div><h3>Контакты</h3><div className="links-stack">{selected["Телефон"] && <a className="text-link" href={`tel:${selected["Телефон"].replace(/[^+\d]/g,"")}`}><Icon name="phone"/>{selected["Телефон"]}</a>}<LinkButton href={selected["Google Maps"]} icon="map">Google Maps</LinkButton><LinkButton href={selected["Facebook"]} icon="link">Facebook</LinkButton><LinkButton href={selected["WhatsApp"]} icon="link">WhatsApp</LinkButton></div><div className="local-note"><h3>Моя заметка <small>локально</small></h3><textarea aria-label="Локальная заметка" placeholder="Что важно помнить? Следующий шаг, результат контакта…" value={draft} onChange={e => { setDraft(e.target.value); setSaveState(""); }}/><div className="note-footer"><span>{saveState || (notes[selected.id]?.updatedAt ? `Сохранено: ${readableDate(notes[selected.id].updatedAt)}` : "Пока не сохранено")}</span><button className="primary-btn" onClick={saveNote}><Icon name="save"/>Сохранить заметку</button></div></div></div>
-          <Offer lead={selected} language={offerLanguage} setLanguage={setOfferLanguage} onCopy={copyOffer}/>
-        </div>}
-        {detailTab === "research" && <div className="long-content"><div><h3>Ресёрч</h3><p>{selected["Ресёрч"] || "Ресёрч не указан."}</p></div><div><h3>Детали</h3><p>{selected["Детали"] || "Детали не указаны."}</p><h3>Адрес</h3><p>{selected["Адрес"] || "Адрес не указан."}</p></div></div>}
-        {detailTab === "offer" && <Offer lead={selected} language={offerLanguage} setLanguage={setOfferLanguage} onCopy={copyOffer} large/>}
-      </section> : <section className="no-selection">{source.kind === "none" ? <><h2>Подключите Google Таблицу</h2><p>Лиды загрузятся из таблицы после входа в Google-аккаунт с доступом к ней. Сайт по ссылке открывается без входа, но данные в публичную сборку не включены.</p><button className="primary-btn" onClick={() => setSettingsOpen(true)}>Подключить Google</button></> : <>Нет лидов по текущему запросу. Очистите поиск или загрузите таблицу.</>}</section>}
+      {sortOpen && (
+        <div className="sort-menu" role="listbox" aria-label="Сортировка">
+          {SORTS.map(item => (
+            <button key={item.id} type="button" role="option" aria-selected={view.sort === item.id} className={view.sort === item.id ? "selected" : ""} onClick={() => { setView(current => ({ ...current, sort: item.id })); setSortOpen(false); }}>↓ {item.label}</button>
+          ))}
+        </div>
+      )}
+      {!canWrite && source.kind !== "none" && <button type="button" className="connect-banner" onClick={() => setSettingsOpen(true)}>{sourceLabel}</button>}
+      {sheetWarning && <div className="soft-banner" role="status">{sheetWarning}</div>}
+      {syncError && !settingsOpen && <div className="soft-banner" role="status">{syncError}</div>}
+      {!wide && source.kind !== "none" && (
+        <div className="stage-tabs-wrap">
+          <div className="stage-tabs" role="tablist" aria-label="Стадии">
+            {tabs.map(tab => (
+              <button key={tab.key} type="button" role="tab" aria-selected={activeStage === tab.key} className={activeStage === tab.key ? "stage-tab selected" : "stage-tab"} onClick={() => setView(current => ({ ...current, stage: tab.key }))}>
+                <span>{tab.label}</span>
+                <span className="count">{tab.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      </div>
+      <div className="section-heading">
+        <div>
+          <h1>{section === "notes" ? "Мои заметки" : "Лиды"}</h1>
+          <p>{source.kind === "none" ? "Подключите таблицу, чтобы увидеть воронку" : `${filtered.length} из ${leads.length}`}</p>
+        </div>
+        <a href={sheetUrl} target="_blank" rel="noreferrer">Таблица <Icon name="link" /></a>
+      </div>
+      {source.kind !== "none" && (
+        <div className="toolbar">
+          <button type="button" className="secondary-btn" onClick={() => setFilterOpen(true)}><Icon name="filter" />Фильтры ({filterCount})</button>
+          <button type="button" className="tool-btn sort-btn" aria-label={`Сортировка: ${sortLabel}`} aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}><Icon name="sort" />↓ {sortLabel}</button>
+          {wide && <button type="button" className={showClosed || activeStage === "closed" ? "secondary-btn selected" : "secondary-btn"} aria-pressed={showClosed || activeStage === "closed"} onClick={() => {
+            if (showClosed || activeStage === "closed") {
+              setShowClosed(false);
+              if (activeStage === "closed") setView(current => ({ ...current, stage: defaultStageKey(leads.filter(lead => lead.stage.kind !== "closed")) || defaultStageKey(leads) }));
+            } else setShowClosed(true);
+          }}>✕ Закрытые ({closedCount})</button>}
+        </div>
+      )}
+      {source.kind === "none" ? (
+        <section className="no-selection">
+          <h2>Подключите Google Таблицу</h2>
+          <p>Лиды загрузятся из листа «Лиды» после входа в Google-аккаунт с доступом к таблице. Сайт по ссылке открывается без входа, данные в сборку не включены.</p>
+          <button type="button" className="primary-btn" onClick={() => setSettingsOpen(true)}>Подключить Google</button>
+        </section>
+      ) : (
+        <LeadList
+          wide={wide}
+          tabs={tabs}
+          leads={filtered}
+          activeStage={activeStage}
+          selectedId={selectedId}
+          notes={notes}
+          onOpen={openLead}
+          onZalo={openZalo}
+          showClosed={showClosed || activeStage === "closed"}
+        />
+      )}
     </main>
-    {settingsOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setSettingsOpen(false); }}><section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div className="modal-heading"><div><h2 id="settings-title">Подключение данных</h2><p>Редактирование и обновление таблицы работают через ваш Google-аккаунт. Локальные заметки остаются в этом браузере.</p></div><button className="icon-button" aria-label="Закрыть" onClick={() => setSettingsOpen(false)}><Icon name="close"/></button></div>
-      <div className="settings-block"><h3>Google Таблица</h3><p>Включите Google Sheets API, создайте OAuth Client ID типа «Веб-приложение» и добавьте в разрешённые источники JavaScript <code>{window.location.origin}</code>. Подключайте аккаунт с правом редактирования таблицы.</p><label>OAuth Client ID<input value={clientId} onChange={e => setClientId(e.target.value)} placeholder="xxxx.apps.googleusercontent.com"/></label><button className="primary-btn" onClick={connectGoogle} disabled={syncing || !googleReady}>{syncing ? "Загрузка…" : googleReady ? "Подключить Google" : "Загрузка входа Google…"}</button><a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Открыть Google Cloud Console <Icon name="link"/></a><p className="sync-hint">{syncError || "Изменения с Google Таблицы проверяются каждые 5 секунд, пока вкладка открыта. После истечения сессии потребуется повторное подключение."}</p></div>
-      <div className="settings-block"><h3>Загрузить CSV вручную</h3><p>В Google Таблице выберите «Файл → Скачать → CSV». Заметки сохранятся при обновлении списка.</p><input ref={fileInput} type="file" accept=".csv,text/csv" className="visually-hidden" onChange={importCsv}/><button className="secondary-btn" onClick={() => fileInput.current?.click()}><Icon name="upload"/>Выбрать CSV</button></div>
-      <div className="settings-block"><h3>Резервная копия заметок</h3><p>Скачайте копию перед очисткой браузера или переносом CRM.</p><div className="settings-actions"><button className="secondary-btn" onClick={exportNotes}><Icon name="download"/>Скачать JSON</button><input ref={notesInput} type="file" accept=".json,application/json" className="visually-hidden" onChange={importNotes}/><button className="secondary-btn" onClick={() => notesInput.current?.click()}><Icon name="upload"/>Восстановить JSON</button></div></div>
-      <p className="privacy-note">Источник: <a href={sheetUrl} target="_blank" rel="noreferrer">лист «Лиды»</a>. Сайт открывается каждому, у кого есть ссылка; доступ к данным определяют права Google Таблицы.</p>
-    </section></div>}
-    {editOpen && selected && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !savingLead) setEditOpen(false); }}><section className="settings-modal edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-      <div className="modal-heading"><div><h2 id="edit-title">Изменить лида № {selected.id}</h2><p>Изменённые поля будут записаны в строку {selected.rowNumber} листа «{SHEET_NAME}».</p></div><button className="icon-button" aria-label="Закрыть" onClick={() => setEditOpen(false)} disabled={savingLead}><Icon name="close"/></button></div>
-      <div className="edit-fields">{source.rows[0].filter(field => field && field !== "№").map(field => <label key={field}>{field}{["Детали","Ресёрч","Оффер EN","Оффер VI","Хук","Заметка","Интервью: деталь","Интервью VI","Интервью EN","Интервью: заметка"].includes(field)
-        ? <textarea value={editDraft[field] ?? ""} onChange={e => setEditDraft(previous => ({ ...previous, [field]:e.target.value }))}/>
-        : <input value={editDraft[field] ?? ""} onChange={e => setEditDraft(previous => ({ ...previous, [field]:e.target.value }))}/>}</label>)}</div>
-      <div className="edit-footer"><span>Перед записью CRM проверит, что строка и изменяемые ячейки остались прежними.</span><div><button className="secondary-btn" onClick={() => setEditOpen(false)} disabled={savingLead}>Отмена</button><button className="primary-btn" onClick={saveLead} disabled={savingLead}>{savingLead ? "Сохранение…" : "Сохранить в Google Таблице"}</button></div></div>
-    </section></div>}
+    <nav className="tab-bar" aria-label="Разделы CRM">
+      <button type="button" className={section === "leads" ? "active" : ""} onClick={() => setSection("leads")}><Icon name="leads" />Лиды</button>
+      <button type="button" className={section === "notes" ? "active" : ""} onClick={() => setSection("notes")}><Icon name="notes" />Мои заметки <small>{noteCount}</small></button>
+      <button type="button" onClick={() => setSettingsOpen(true)}><Icon name="settings" />Подключение</button>
+    </nav>
+    </div>
+    {selected && (
+      <LeadCard
+        lead={selected}
+        note={notes[selected.id]}
+        draft={draft}
+        saveState={saveState}
+        tab={detailTab}
+        language={language}
+        canEdit={Boolean(token && source.kind === "google")}
+        onClose={() => setSelectedId(null)}
+        onEdit={openLeadEdit}
+        onStage={() => { gateRef.current = { ...gateRef.current, stage: true }; setStageOpen(true); }}
+        onTab={setDetailTab}
+        onLanguage={setLanguage}
+        onDraft={value => { setDraft(value); setSaveState(""); }}
+        onSaveNote={saveNote}
+        onCopy={copyCurrent}
+        onZalo={openZalo}
+        onWhatsApp={openWhatsApp}
+      />
+    )}
+    {stageOpen && selected && (
+      <StageSheet
+        key={selected.id}
+        lead={selected}
+        choices={stageChoices(leads)}
+        saving={savingStage}
+        canWrite={canWrite}
+        onClose={() => { if (!savingStage) setStageOpen(false); }}
+        onSave={saveStage}
+        onConnect={() => { setStageOpen(false); setSettingsOpen(true); }}
+      />
+    )}
+    {filterOpen && (
+      <FilterSheet leads={leads} view={view} resultCount={filtered.length} onChange={setView} onClose={() => setFilterOpen(false)} />
+    )}
+    {settingsOpen && (
+      <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
+        <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <div className="modal-heading">
+            <div>
+              <h2 id="settings-title">Подключение данных</h2>
+              <p>Редактирование и обновление таблицы работают через ваш Google-аккаунт. Локальные заметки остаются в этом браузере.</p>
+            </div>
+            <button type="button" className="icon-button" aria-label="Закрыть" onClick={() => setSettingsOpen(false)}><Icon name="close" /></button>
+          </div>
+          <div className="settings-block">
+            <h3>Google Таблица</h3>
+            <p>Включите Google Sheets API, создайте OAuth Client ID типа «Веб-приложение» и добавьте в разрешённые источники JavaScript <code>{window.location.origin}</code>. Подключайте аккаунт с правом редактирования таблицы.</p>
+            <label>OAuth Client ID<input value={clientId} onChange={event => setClientId(event.target.value)} placeholder="xxxx.apps.googleusercontent.com" /></label>
+            <button type="button" className={syncing ? "primary-btn is-loading" : "primary-btn"} onClick={connectGoogle} disabled={syncing || !googleReady}>{syncing ? "Загрузка…" : googleReady ? "Подключить Google" : "Загрузка входа Google…"}</button>
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Открыть Google Cloud Console <Icon name="link" /></a>
+            <p className="sync-hint">{syncError || "Изменения с Google Таблицы проверяются каждые 5 секунд, пока вкладка открыта. Во время правки новые данные не затирают черновик."}</p>
+          </div>
+          <div className="settings-block">
+            <h3>Загрузить CSV вручную</h3>
+            <p>В Google Таблице выберите «Файл → Скачать → CSV». Заметки сохранятся при обновлении списка.</p>
+            <input ref={fileInput} type="file" accept=".csv,text/csv" className="visually-hidden" onChange={importCsv} />
+            <button type="button" className="secondary-btn" onClick={() => fileInput.current?.click()}><Icon name="upload" />Выбрать CSV</button>
+          </div>
+          <div className="settings-block">
+            <h3>Резервная копия заметок</h3>
+            <p>Скачайте копию перед очисткой браузера или переносом CRM. «Моя заметка» не пишется в столбец «Заметка».</p>
+            <div className="settings-actions">
+              <button type="button" className="secondary-btn" onClick={exportNotes}><Icon name="download" />Скачать JSON</button>
+              <input ref={notesInput} type="file" accept=".json,application/json" className="visually-hidden" onChange={importNotes} />
+              <button type="button" className="secondary-btn" onClick={() => notesInput.current?.click()}><Icon name="upload" />Восстановить JSON</button>
+            </div>
+          </div>
+          <p className="privacy-note">Источник: <a href={sheetUrl} target="_blank" rel="noreferrer">лист «Лиды»</a>. Сайт открывается каждому, у кого есть ссылка; доступ к данным определяют права Google Таблицы.</p>
+        </section>
+      </div>
+    )}
+    {editOpen && selected && (
+      <EditModal
+        lead={selected}
+        headers={headers}
+        leads={leads}
+        draft={editDraft}
+        saving={savingLead}
+        onChange={(field, value) => setEditDraft(previous => ({ ...previous, [field]: value }))}
+        onClose={() => { if (!savingLead) setEditOpen(false); }}
+        onSave={saveLead}
+      />
+    )}
+    {stale && <div className="stale-banner" role="status">В таблице есть новые данные</div>}
     {(message || error) && <div role="status" className={error ? "toast error" : "toast"}>{error || message}</div>}
   </div>;
 }

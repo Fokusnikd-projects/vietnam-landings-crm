@@ -7,3 +7,4 @@ src/snapshot.json
 .env.*
 !.env.example
 *.log
+.playwright-mcp/
