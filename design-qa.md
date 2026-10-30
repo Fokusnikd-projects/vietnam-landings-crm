@@ -1,5 +1,9 @@
 # Design QA
 
+2026-10-30: the readiness board was replaced by the «Статус» funnel (stage tabs below 1024 px, kanban from 1024 px). Screenshots for that pass are the 360 px and 1280 px list, card, stage sheet, and filter artifacts. The notes below describe the earlier three-column readiness board.
+
+# Earlier readiness-board QA
+
 visual result: passed; current read/write flow: passed with mocked Google API; live Google authorization and permanent Vercel publication pending
 
 ## Evidence

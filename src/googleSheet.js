@@ -3,6 +3,7 @@ import { SHEET_ID, SHEET_NAME } from "./data.js";
 export const GOOGLE_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 export const REFRESH_INTERVAL_MS = 5000;
 export const SHEET_VALUES_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
+export const SHEET_READ_RANGE = `'${SHEET_NAME}'!A:ZZ`;
 
 export function columnName(index) {
   if (!Number.isInteger(index) || index < 0) throw new Error("Неверный номер столбца.");
@@ -38,4 +39,13 @@ export function buildWriteRanges({ headers, lead, draft, liveValues, liveFormula
     updates.push({ range: `'${SHEET_NAME}'!${columnName(index)}${lead.rowNumber}`, values: [[numeric]] });
   }
   return updates;
+}
+
+export function writeCell({ headers, lead, field, value, liveValues, liveFormulas }) {
+  if (!field || field === "№") throw new Error("Это поле нельзя изменить.");
+  return buildWriteRanges({ headers, lead, draft: { ...lead, [field]: value }, liveValues, liveFormulas });
+}
+
+export function isSheetConflict(error) {
+  return /переместилась|уже изменено|формулу/.test(String(error?.message || ""));
 }

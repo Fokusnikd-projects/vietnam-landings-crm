@@ -2,7 +2,7 @@
 
 ## Маршруты
 
-- Экран, локальные заметки, OAuth и синхронизация: [ui.md](ui.md) → `src/App.jsx`, `src/styles.css`.
+- Экран, воронка по «Статус», фильтры в URL, локальные заметки, OAuth и синхронизация: [ui.md](ui.md) → `src/App.jsx`, `src/components/`, `src/styles.css`.
 - Формат лидов, координаты ячеек и правила записи: [integration.md](integration.md) → `src/data.js`, `src/googleSheet.js`.
 - Сборка для локального запуска: `package.json`, `vite.config.mjs`, `start-crm.cmd`.
 - Сборка для Vercel: `vercel.json`, `.vercelignore`, `package.json` (`build:vercel`).
